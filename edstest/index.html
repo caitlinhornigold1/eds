@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>EDS Chatbot</title>
+</head>
+
+<body>
+
+    <p id="answer"></p>
+
+    <input
+        type="text"
+        id="question"
+        placeholder="Ask a question..."
+    >
+
+    <button onclick="askQuestion()">Ask</button>
+
+    
+
+    <script>
+
+        async function askQuestion() {
+
+            const question = document.getElementById("question").value;
+            const answer = document.getElementById("answer");
+
+            answer.textContent = "Thinking...";
+
+            const response = await fetch("http://127.0.0.1:8000/chat", {
+                method: "POST",
+
+                headers: {
+                    "Content-Type": "application/json"
+                },
+
+                body: JSON.stringify({
+                    question: question
+                })
+            });
+
+            const data = await response.json();
+
+            answer.textContent = data.answer;
+        }
+
+    </script>
+
+</body>
+</html>

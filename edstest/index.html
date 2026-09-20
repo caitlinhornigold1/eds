@@ -6,7 +6,7 @@
 
 <body>
 
-    <p id="answer"></p>
+    <div id="conversation"></div>
 
     <input
         type="text"
@@ -16,32 +16,55 @@
 
     <button onclick="askQuestion()">Ask</button>
 
-    
-
     <script>
 
         async function askQuestion() {
 
-            const question = document.getElementById("question").value;
-            const answer = document.getElementById("answer");
+            const questionInput = document.getElementById("question");
+            const question = questionInput.value.trim();
+            const conversation = document.getElementById("conversation");
 
-            answer.textContent = "Thinking...";
+            if (question === "") {
+                return;
+            }
 
-            const response = await fetch("http://127.0.0.1:8000/chat", {
-                method: "POST",
+            // Show the user's message
+            const userMessage = document.createElement("p");
+            userMessage.textContent = "You: " + question;
+            conversation.appendChild(userMessage);
 
-                headers: {
-                    "Content-Type": "application/json"
-                },
+            // Clear the input box
+            questionInput.value = "";
 
-                body: JSON.stringify({
-                    question: question
-                })
-            });
+            // Show temporary AI message
+            const aiMessage = document.createElement("p");
+            aiMessage.textContent = "EDS: Thinking...";
+            conversation.appendChild(aiMessage);
 
-            const data = await response.json();
+            try {
 
-            answer.textContent = data.answer;
+                const response = await fetch("http://127.0.0.1:8000/chat", {
+                    method: "POST",
+
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+
+                    body: JSON.stringify({
+                        question: question
+                    })
+                });
+
+                const data = await response.json();
+
+                // Replace "Thinking..." with the AI response
+                aiMessage.textContent = "EDS: " + data.answer;
+
+            } catch (error) {
+
+                aiMessage.textContent = "EDS: Unable to get a response.";
+                console.error(error);
+            }
         }
 
     </script>

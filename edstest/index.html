@@ -64,6 +64,55 @@
                 // Replace loading status with the AI response
                 aiMessage.textContent = "EDS: " + data.answer;
 
+                // Display sources below the relevant answer
+if (data.sources && data.sources.length > 0) {
+
+    const sourcesContainer = document.createElement("div");
+
+    const sourcesTitle = document.createElement("strong");
+    sourcesTitle.textContent = "Sources:";
+    sourcesContainer.appendChild(sourcesTitle);
+
+    const sourcesList = document.createElement("ul");
+
+    data.sources.forEach(function(source) {
+
+        const sourceItem = document.createElement("li");
+
+        // Document title
+        const title = document.createElement("span");
+        title.textContent = source.document;
+        sourceItem.appendChild(title);
+
+        // Page number, if available
+        if (source.page !== undefined && source.page !== null) {
+            const page = document.createElement("span");
+            page.textContent = " - Page " + source.page;
+            sourceItem.appendChild(page);
+        }
+
+        // URL, if available
+        if (source.url) {
+
+            const separator = document.createTextNode(" - ");
+            sourceItem.appendChild(separator);
+
+            const link = document.createElement("a");
+            link.href = source.url;
+            link.textContent = "Open source";
+            link.target = "_blank";
+            link.rel = "noopener noreferrer";
+
+            sourceItem.appendChild(link);
+        }
+
+        sourcesList.appendChild(sourceItem);
+    });
+
+    sourcesContainer.appendChild(sourcesList);
+    conversation.appendChild(sourcesContainer);
+}
+
             } catch (error) {
 
                 // Replace loading status with an error message

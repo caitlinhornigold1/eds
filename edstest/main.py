@@ -78,4 +78,36 @@ def chat(question: Question):
         },
     )
 
-    return {"answer": response["message"]["content"]}
+    # 4. Prepare source information for the frontend
+    sources = []
+    seen_sources = set()
+
+    for meta in retrieved_metas:
+        document = meta.get("document", "Unknown Document")
+        page = meta.get("page")
+        url = meta.get("url")
+
+        # Prevent duplicate sources from being displayed
+        source_key = (document, page, url)
+
+        if source_key in seen_sources:
+            continue
+
+        seen_sources.add(source_key)
+
+        source = {
+            "document": document
+        }
+
+        if page is not None:
+            source["page"] = page
+
+        if url:
+            source["url"] = url
+
+        sources.append(source)
+
+    return {
+        "answer": response["message"]["content"],
+        "sources": sources
+    }

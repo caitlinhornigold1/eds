@@ -80,10 +80,20 @@ def chat(question: Question):
 
     answer = response["message"]["content"]
 
-    # Determine whether the response has limited support
-    low_confidence = (
-        "I do not have enough information in my database to answer this."
-        in answer
+    
+    insufficient_phrase = (
+        "i do not have enough information in my database to answer"
+    )
+
+    # Show a warning whenever the model indicates that the available
+    # information is not enough to fully answer the question.
+    low_confidence = insufficient_phrase in answer.lower()
+
+    # A response is fully unsupported when it begins with the
+    # insufficient-information message rather than providing
+    # supported information first.
+    fully_unsupported = answer.strip().lower().startswith(
+        insufficient_phrase
     )
 
     # 4. Prepare source information for the frontend
@@ -117,7 +127,7 @@ def chat(question: Question):
 
             # Do not show retrieved sources when there was not enough
             # information to support an answer
-        if low_confidence:
+        if fully_unsupported:
             sources = []
 
     return {

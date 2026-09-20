@@ -63,6 +63,20 @@
 
                 // Replace loading status with the AI response
                 aiMessage.textContent = "EDS: " + data.answer;
+                if (data.low_confidence) {
+
+    const warning = document.createElement("p");
+
+    warning.textContent =
+        "Warning: This answer may not be fully supported by the available EDS information.";
+
+    warning.style.backgroundColor = "#fff3cd";
+    warning.style.border = "1px solid #ffe69c";
+    warning.style.padding = "10px";
+    warning.style.fontWeight = "bold";
+
+    conversation.appendChild(warning);
+}
 
                 // Display sources below the relevant answer
 if (data.sources && data.sources.length > 0) {

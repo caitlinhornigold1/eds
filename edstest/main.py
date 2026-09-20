@@ -69,13 +69,21 @@ def chat(question: Question):
     {user_query}
     """
 
-    # 3. Call Ollama with temperature=0.0 to prevent creative leaps
+       # 3. Call Ollama with temperature=0.0 to prevent creative leaps
     response = ollama.chat(
         model="llama3.2",
         messages=[{"role": "user", "content": system_prompt}],
         options={
-            "temperature": 0.0  # Forces deterministic, non-creative extraction
+            "temperature": 0.0
         },
+    )
+
+    answer = response["message"]["content"]
+
+    # Determine whether the response has limited support
+    low_confidence = (
+        "I do not have enough information in my database to answer this."
+        in answer
     )
 
     # 4. Prepare source information for the frontend
@@ -107,7 +115,13 @@ def chat(question: Question):
 
         sources.append(source)
 
+            # Do not show retrieved sources when there was not enough
+            # information to support an answer
+        if low_confidence:
+            sources = []
+
     return {
-        "answer": response["message"]["content"],
-        "sources": sources
+        "answer": answer,
+        "sources": sources,
+        "low_confidence": low_confidence
     }

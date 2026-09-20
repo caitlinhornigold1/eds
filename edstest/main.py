@@ -130,8 +130,9 @@ def chat(question: Question):
         if fully_unsupported:
             sources = []
 
-    return {
+        return {
         "answer": answer,
         "sources": sources,
-        "low_confidence": low_confidence
+        "low_confidence": low_confidence,
+        "unanswered": fully_unsupported
     }

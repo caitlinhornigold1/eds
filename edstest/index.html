@@ -17,57 +17,71 @@
     <button id="sendButton" onclick="askQuestion()">Ask</button>
 
     <script>
+    async function askQuestion() {
 
-        async function askQuestion() {
+        const questionInput = document.getElementById("question");
+        const question = questionInput.value.trim();
+        const conversation = document.getElementById("conversation");
+        const sendButton = document.getElementById("sendButton");
 
-            const questionInput = document.getElementById("question");
-            const question = questionInput.value.trim();
-            const conversation = document.getElementById("conversation");
-            const sendButton = document.getElementById("sendButton");
+        if (question === "") {
+            return;
+        }
 
-            if (question === "") {
-                return;
+        // Disable button while processing
+        sendButton.disabled = true;
+
+        // Display user message
+        const userMessage = document.createElement("p");
+        userMessage.textContent = "You: " + question;
+        conversation.appendChild(userMessage);
+
+        // Clear input
+        questionInput.value = "";
+
+        // Loading message
+        const aiMessage = document.createElement("p");
+        aiMessage.textContent = "EDS: Thinking...";
+        conversation.appendChild(aiMessage);
+
+        try {
+
+            const response = await fetch("http://127.0.0.1:8000/chat", {
+                method: "POST",
+
+                headers: {
+                    "Content-Type": "application/json"
+                },
+
+                body: JSON.stringify({
+                    question: question
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error("Server returned an error");
             }
 
-            // Disable the button while the question is processing
-            sendButton.disabled = true;
+            const data = await response.json();
 
-            // Show the user's message
-            const userMessage = document.createElement("p");
-            userMessage.textContent = "You: " + question;
-            conversation.appendChild(userMessage);
+            // Display unanswered questions differently
+            if (data.unanswered) {
 
-            // Clear the input box
-            questionInput.value = "";
+                aiMessage.textContent =
+                    "EDS: I couldn't find relevant information in the EDS knowledge base to answer this question.";
 
-            // Display loading status
-            const aiMessage = document.createElement("p");
-            aiMessage.textContent = "EDS: Thinking...";
-            conversation.appendChild(aiMessage);
+                aiMessage.style.backgroundColor = "#f8d7da";
+                aiMessage.style.border = "1px solid #f1aeb5";
+                aiMessage.style.padding = "10px";
+                aiMessage.style.fontWeight = "bold";
 
-            try {
+            } else {
 
-                const response = await fetch("http://127.0.0.1:8000/chat", {
-                    method: "POST",
-
-                    headers: {
-                        "Content-Type": "application/json"
-                    },
-
-                    body: JSON.stringify({
-                        question: question
-                    })
-                });
-
-                if (!response.ok) {
-                     throw new Error("Server returned an error");
-                }
-
-                const data = await response.json();
-
-                // Replace loading status with the AI response
                 aiMessage.textContent = "EDS: " + data.answer;
-                if (data.low_confidence) {
+            }
+
+            // Display low-confidence warning for partially supported answers
+            if (data.low_confidence && !data.unanswered) {
 
                 const warning = document.createElement("p");
 
@@ -79,40 +93,40 @@
                 warning.style.padding = "10px";
                 warning.style.fontWeight = "bold";
 
-                    conversation.appendChild(warning);
-                }
+                conversation.appendChild(warning);
+            }
 
-                // Display sources below the relevant answer
-                if (data.sources && data.sources.length > 0) {
+            // Display sources
+            if (data.sources && data.sources.length > 0) {
 
-                    const sourcesContainer = document.createElement("div");
+                const sourcesContainer = document.createElement("div");
 
-                    const sourcesTitle = document.createElement("strong");
-                    sourcesTitle.textContent = "Sources:";
-                    sourcesContainer.appendChild(sourcesTitle);
+                const sourcesTitle = document.createElement("strong");
+                sourcesTitle.textContent = "Sources:";
+                sourcesContainer.appendChild(sourcesTitle);
 
-                    const sourcesList = document.createElement("ul");
+                const sourcesList = document.createElement("ul");
 
-                    data.sources.forEach(function(source) {
+                data.sources.forEach(function(source) {
 
                     const sourceItem = document.createElement("li");
 
-                    // Document title
                     const title = document.createElement("span");
                     title.textContent = source.document;
                     sourceItem.appendChild(title);
 
-                    // Page number, if available
                     if (source.page !== undefined && source.page !== null) {
+
                         const page = document.createElement("span");
                         page.textContent = " - Page " + source.page;
                         sourceItem.appendChild(page);
                     }
 
-                    // URL, if available
                     if (source.url) {
 
-                        const separator = document.createTextNode(" - ");
+                        const separator =
+                            document.createTextNode(" - ");
+
                         sourceItem.appendChild(separator);
 
                         const link = document.createElement("a");
@@ -131,21 +145,20 @@
                 conversation.appendChild(sourcesContainer);
             }
 
-            } catch (error) {
+        } catch (error) {
 
-                aiMessage.textContent =
-                    "EDS: Sorry, something went wrong while processing your question. Please try again.";
+            aiMessage.textContent =
+                "EDS: Sorry, something went wrong while processing your question. Please try again.";
 
-                console.error(error);
+            console.error(error);
 
-            } finally {
+        } finally {
 
-                sendButton.disabled = false;
-                questionInput.focus();
-            }
+            sendButton.disabled = false;
+            questionInput.focus();
         }
-
-    </script>
+    }
+</script>
 
 </body>
 </html>

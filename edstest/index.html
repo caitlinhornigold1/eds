@@ -2,19 +2,38 @@
 <html>
 <head>
     <title>EDS Chatbot</title>
+
+    <style>
+        input:focus-visible,
+        button:focus-visible,
+        a:focus-visible {
+            outline: 3px solid #005fcc;
+            outline-offset: 2px;
+        }
+    </style>
 </head>
 
 <body>
 
     <div id="conversation"></div>
 
-    <input
-        type="text"
-        id="question"
-        placeholder="Ask a question..."
-    >
+    <form id="chatForm">
 
-    <button id="sendButton" onclick="askQuestion()">Ask</button>
+        <input
+            type="text"
+            id="question"
+            placeholder="Ask a question..."
+            aria-label="Ask EDS a question"
+        >
+
+        <button
+            id="sendButton"
+            type="submit"
+        >
+            Ask
+        </button>
+
+    </form>
 
     <script>
     async function askQuestion() {
@@ -152,12 +171,23 @@
 
             console.error(error);
 
-        } finally {
+                } finally {
 
             sendButton.disabled = false;
             questionInput.focus();
         }
     }
+
+    document.getElementById("chatForm").addEventListener(
+        "submit",
+        function(event) {
+
+            event.preventDefault();
+            askQuestion();
+
+        }
+    );
+
 </script>
 
 </body>

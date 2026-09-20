@@ -14,7 +14,7 @@
         placeholder="Ask a question..."
     >
 
-    <button onclick="askQuestion()">Ask</button>
+    <button id="sendButton" onclick="askQuestion()">Ask</button>
 
     <script>
 
@@ -23,10 +23,14 @@
             const questionInput = document.getElementById("question");
             const question = questionInput.value.trim();
             const conversation = document.getElementById("conversation");
+            const sendButton = document.getElementById("sendButton");
 
             if (question === "") {
                 return;
             }
+
+            // Disable the button while the question is processing
+            sendButton.disabled = true;
 
             // Show the user's message
             const userMessage = document.createElement("p");
@@ -36,7 +40,7 @@
             // Clear the input box
             questionInput.value = "";
 
-            // Show temporary AI message
+            // Display loading status
             const aiMessage = document.createElement("p");
             aiMessage.textContent = "EDS: Thinking...";
             conversation.appendChild(aiMessage);
@@ -57,13 +61,20 @@
 
                 const data = await response.json();
 
-                // Replace "Thinking..." with the AI response
+                // Replace loading status with the AI response
                 aiMessage.textContent = "EDS: " + data.answer;
 
             } catch (error) {
 
+                // Replace loading status with an error message
                 aiMessage.textContent = "EDS: Unable to get a response.";
                 console.error(error);
+
+            } finally {
+
+                // Re-enable the button when processing finishes
+                sendButton.disabled = false;
+                questionInput.focus();
             }
         }
 

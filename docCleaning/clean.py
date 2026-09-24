@@ -34,7 +34,7 @@ def process_single_pdf(pdf_path):
 
     # Updated to gemini-3.6-flash as requested by the API error
     response = client.models.generate_content(
-        model="gemini-3.6-flash",
+        model="gemini-3.5-flash-lite",
         contents=prompt,
         config=types.GenerateContentConfig(
             response_mime_type="application/json",

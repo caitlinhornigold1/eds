@@ -3,7 +3,7 @@ import os
 import chromadb
 
 # 1. Initialize a local vector database stored in a folder called 'my_vector_db'
-chroma_client = chromadb.PersistentClient(path="../edtest/my_vector_db")
+chroma_client = chromadb.PersistentClient(path="../edstest/my_vector_db")
 
 # 2. Get or create a collection (like a table in SQL)
 collection = chroma_client.get_or_create_collection(name="eds_documents")

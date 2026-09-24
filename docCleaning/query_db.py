@@ -2,7 +2,7 @@ import json
 import chromadb
 
 # 1. Connect to the existing local database
-chroma_client = chromadb.PersistentClient(path="./my_vector_db")
+chroma_client = chromadb.PersistentClient(path="../edstest/my_vector_db")
 collection = chroma_client.get_collection(name="eds_documents")
 
 # 2. Define your search term

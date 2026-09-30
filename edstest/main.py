@@ -39,7 +39,7 @@ def chat(question: Question):
     # 1. Retrieve top matching document chunks
     search_results = collection.query(
         query_texts=[user_query],
-        n_results=2,
+        n_results=5,
     )
 
     retrieved_docs = search_results["documents"][0]

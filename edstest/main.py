@@ -1,16 +1,12 @@
+import os
 import chromadb
 
 from fastapi import FastAPI
-
 from fastapi.middleware.cors import CORSMiddleware
-
 import ollama
-
 from pydantic import BaseModel
 
-
 app = FastAPI()
-
 
 app.add_middleware(
     CORSMiddleware,
@@ -19,16 +15,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# 1. Dynamic Absolute Pathing for Vector DB
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.path.abspath(os.path.join(SCRIPT_DIR, "my_vector_db"))
 
-# 1. Connect to the ChromaDB vector database
-
-chroma_client = chromadb.PersistentClient(path="./my_vector_db")
-
+chroma_client = chromadb.PersistentClient(path=DB_PATH)
 collection = chroma_client.get_collection(name="eds_documents")
 
 
 class Question(BaseModel):
-
     question: str
 
 
@@ -36,32 +31,55 @@ class Question(BaseModel):
 def chat(question: Question):
     user_query = question.question
 
-    # 1. Retrieve top matching document chunks
+    # 1. Retrieve top matching document chunks (increased to 8 for multi-source coverage)
     search_results = collection.query(
         query_texts=[user_query],
-        n_results=5,
+        n_results=8,
     )
 
     retrieved_docs = search_results["documents"][0]
     retrieved_metas = search_results["metadatas"][0]
 
-    context = ""
-    for idx, (doc, meta) in enumerate(
-        zip(retrieved_docs, retrieved_metas), start=1
-    ):
-        source_title = meta.get("document", "Unknown Document")
-        context += f"\n--- DOCUMENT SOURCE {idx}: {source_title} ---\n{doc}\n"
+    # 2. Deduplicate chunks & Map Sources to [Doc X] labels
+    seen_texts = set()
+    source_map = {}
+    formatted_context_blocks = []
+    doc_counter = 1
 
-    # 2. Strict Zero-Hallucination System Prompt
+    for doc, meta in zip(retrieved_docs, retrieved_metas):
+        clean_text = doc.strip()
+
+        # Skip duplicate text chunks
+        if clean_text in seen_texts:
+            continue
+        seen_texts.add(clean_text)
+
+        document = meta.get("document", "Unknown Document")
+        page = meta.get("page", "N/A")
+
+        # Assign a consistent label like [Doc 1], [Doc 2] per unique file
+        if document not in source_map:
+            source_map[document] = f"Doc {doc_counter}"
+            doc_counter += 1
+
+        doc_label = source_map[document]
+
+        formatted_context_blocks.append(
+            f"SOURCE [{doc_label}] (Document: {document}, Page {page}):\n{clean_text}"
+        )
+
+    context = "\n\n---\n\n".join(formatted_context_blocks)
+
+    # 3. Strict Zero-Hallucination System Prompt with Citation Rules
     system_prompt = f"""
     You are a strict data-extraction assistant for the Environmental Defence Society (EDS).
     
     STRICT RULES:
     1. Answer the question using ONLY the verbatim facts in the CONTEXT below.
-    2. DO NOT infer, extrapolate, or assume any politician's or party's stance unless it is EXPLICITLY stated in the context.
-    3. If a political party or person is NOT mentioned regarding a specific topic, DO NOT include them in your summary.
-    4. Answer the question using ONLY the provided context below. If the context does not contain enough information to answer fully, state what is known from the context without adding meta-commentary about your database.
-    5. If the provided context does not contain any information to with, state: "I do not have enough information in my database to answer this."
+    2. Every factual statement or claim MUST be cited inline using its corresponding source tag, e.g., [Doc 1] or [Doc 2].
+    3. DO NOT infer, extrapolate, or assume any politician's or party's stance unless explicitly stated in the context.
+    4. If the provided context does not contain enough information to answer fully, state what is known from the context without adding meta-commentary about your database.
+    5. If the provided context contains NO relevant information, state: "I do not have enough information in my database to answer this."
 
     CONTEXT:
     {context}
@@ -70,70 +88,54 @@ def chat(question: Question):
     {user_query}
     """
 
-       # 3. Call Ollama with temperature=0.0 to prevent creative leaps
+    # 4. Call Ollama
     response = ollama.chat(
         model="llama3.2",
         messages=[{"role": "user", "content": system_prompt}],
-        options={
-            "temperature": 0.0
-        },
+        options={"temperature": 0.0},
     )
 
     answer = response["message"]["content"]
 
-    
-    insufficient_phrase = (
-        "i do not have enough information in my database to answer"
-    )
-
-    # Show a warning whenever the model indicates that the available
-    # information is not enough to fully answer the question.
+    insufficient_phrase = "i do not have enough information in my database to answer"
     low_confidence = insufficient_phrase in answer.lower()
+    fully_unsupported = answer.strip().lower().startswith(insufficient_phrase)
 
-    # A response is fully unsupported when it begins with the
-    # insufficient-information message rather than providing
-    # supported information first.
-    fully_unsupported = answer.strip().lower().startswith(
-        insufficient_phrase
-    )
-
-    # 4. Prepare source information for the frontend
+    # 5. Extract Unique Sources for Response Payload (Processed outside the loop!)
     sources = []
     seen_sources = set()
 
-    for meta in retrieved_metas:
-        document = meta.get("document", "Unknown Document")
-        page = meta.get("page")
-        url = meta.get("url")
+    if not fully_unsupported:
+        for meta in retrieved_metas:
+            document = meta.get("document", "Unknown Document")
+            page = meta.get("page")
+            url = meta.get("url")
 
-        # Prevent duplicate sources from being displayed
-        source_key = (document, page, url)
+            source_key = (document, page, url)
 
-        if source_key in seen_sources:
-            continue
+            if source_key in seen_sources:
+                continue
 
-        seen_sources.add(source_key)
+            seen_sources.add(source_key)
 
-        source = {
-            "document": document
-        }
+            doc_label = source_map.get(document, "Doc")
 
-        if page is not None:
-            source["page"] = page
+            source = {
+                "label": doc_label,
+                "document": document,
+            }
 
-        if url:
-            source["url"] = url
+            if page is not None:
+                source["page"] = page
 
-        sources.append(source)
+            if url:
+                source["url"] = url
 
-            # Do not show retrieved sources when there was not enough
-            # information to support an answer
-        if fully_unsupported:
-            sources = []
+            sources.append(source)
 
-        return {
+    return {
         "answer": answer,
         "sources": sources,
         "low_confidence": low_confidence,
-        "unanswered": fully_unsupported
+        "unanswered": fully_unsupported,
     }

@@ -60,7 +60,8 @@ def chat(question: Question):
     1. Answer the question using ONLY the verbatim facts in the CONTEXT below.
     2. DO NOT infer, extrapolate, or assume any politician's or party's stance unless it is EXPLICITLY stated in the context.
     3. If a political party or person is NOT mentioned regarding a specific topic, DO NOT include them in your summary.
-    4. If the provided context does not contain enough information to answer, state: "I do not have enough information in my database to answer this."
+    4. Answer the question using ONLY the provided context below. If the context does not contain enough information to answer fully, state what is known from the context without adding meta-commentary about your database.
+    5. If the provided context does not contain any information to with, state: "I do not have enough information in my database to answer this."
 
     CONTEXT:
     {context}

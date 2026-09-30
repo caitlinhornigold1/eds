@@ -39,7 +39,7 @@ def chat(question: Question):
     # 1. Retrieve top matching document chunks
     search_results = collection.query(
         query_texts=[user_query],
-        n_results=2,
+        n_results=5,
     )
 
     retrieved_docs = search_results["documents"][0]
@@ -60,7 +60,8 @@ def chat(question: Question):
     1. Answer the question using ONLY the verbatim facts in the CONTEXT below.
     2. DO NOT infer, extrapolate, or assume any politician's or party's stance unless it is EXPLICITLY stated in the context.
     3. If a political party or person is NOT mentioned regarding a specific topic, DO NOT include them in your summary.
-    4. If the provided context does not contain enough information to answer, state: "I do not have enough information in my database to answer this."
+    4. Answer the question using ONLY the provided context below. If the context does not contain enough information to answer fully, state what is known from the context without adding meta-commentary about your database.
+    5. If the provided context does not contain any information to with, state: "I do not have enough information in my database to answer this."
 
     CONTEXT:
     {context}
@@ -69,13 +70,70 @@ def chat(question: Question):
     {user_query}
     """
 
-    # 3. Call Ollama with temperature=0.0 to prevent creative leaps
+       # 3. Call Ollama with temperature=0.0 to prevent creative leaps
     response = ollama.chat(
         model="llama3.2",
         messages=[{"role": "user", "content": system_prompt}],
         options={
-            "temperature": 0.0  # Forces deterministic, non-creative extraction
+            "temperature": 0.0
         },
     )
 
-    return {"answer": response["message"]["content"]}
+    answer = response["message"]["content"]
+
+    
+    insufficient_phrase = (
+        "i do not have enough information in my database to answer"
+    )
+
+    # Show a warning whenever the model indicates that the available
+    # information is not enough to fully answer the question.
+    low_confidence = insufficient_phrase in answer.lower()
+
+    # A response is fully unsupported when it begins with the
+    # insufficient-information message rather than providing
+    # supported information first.
+    fully_unsupported = answer.strip().lower().startswith(
+        insufficient_phrase
+    )
+
+    # 4. Prepare source information for the frontend
+    sources = []
+    seen_sources = set()
+
+    for meta in retrieved_metas:
+        document = meta.get("document", "Unknown Document")
+        page = meta.get("page")
+        url = meta.get("url")
+
+        # Prevent duplicate sources from being displayed
+        source_key = (document, page, url)
+
+        if source_key in seen_sources:
+            continue
+
+        seen_sources.add(source_key)
+
+        source = {
+            "document": document
+        }
+
+        if page is not None:
+            source["page"] = page
+
+        if url:
+            source["url"] = url
+
+        sources.append(source)
+
+            # Do not show retrieved sources when there was not enough
+            # information to support an answer
+        if fully_unsupported:
+            sources = []
+
+        return {
+        "answer": answer,
+        "sources": sources,
+        "low_confidence": low_confidence,
+        "unanswered": fully_unsupported
+    }

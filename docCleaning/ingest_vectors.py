@@ -1,15 +1,39 @@
 import json
 import os
 import chromadb
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-# 1. Initialize a local vector database stored in a folder called 'my_vector_db'
-chroma_client = chromadb.PersistentClient(path="../edtest/my_vector_db")
+# 1. Resolve exact absolute paths relative to THIS script (docCleaning/ingest_vectors.py)
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# 2. Get or create a collection (like a table in SQL)
+# Moves UP from docCleaning/ to project root, then INTO edstest/my_vector_db
+DB_PATH = os.path.abspath(
+    os.path.join(SCRIPT_DIR, "..", "edstest", "my_vector_db")
+)
+
+# Resolves docCleaning/output_json
+JSON_FOLDER = os.path.abspath(os.path.join(SCRIPT_DIR, "output_json"))
+
+print(f"Targeting Vector DB at: {DB_PATH}")
+print(f"Reading JSONs from:     {JSON_FOLDER}\n")
+
+# 2. Connect to ChromaDB using the verified absolute path
+chroma_client = chromadb.PersistentClient(path=DB_PATH)
+
+# 3. Get or create collection
 collection = chroma_client.get_or_create_collection(name="eds_documents")
 
-# Path where your JSON files live
-JSON_FOLDER = "output_json"
+# 4. Initialize LangChain's Recursive Text Splitter
+# Splits on paragraph breaks ("\n\n"), line breaks ("\n"), spaces, and characters in priority order
+text_splitter = RecursiveCharacterTextSplitter(
+    chunk_size=800,
+    chunk_overlap=150,
+    separators=["\n\n", "\n", " ", ""],
+)
+
+if not os.path.exists(JSON_FOLDER):
+    print(f"ERROR: Directory '{JSON_FOLDER}' does not exist.")
+    exit(1)
 
 # Process all JSON files
 for filename in os.listdir(JSON_FOLDER):
@@ -19,24 +43,35 @@ for filename in os.listdir(JSON_FOLDER):
         with open(file_path, "r", encoding="utf-8") as f:
             data = json.load(f)
 
-        # Extract text and metadata from your JSON structure
+        # Extract text and metadata
         doc_text = data.get("cleaned_body_text", "")
         doc_metadata = data.get("metadata", {})
 
-        # Ensure metadata values are valid (Chroma prefers strings, ints, floats, booleans)
+        # Ensure metadata values are valid for ChromaDB
         clean_metadata = {
             k: (v if v is not None else "") for k, v in doc_metadata.items()
         }
 
-        # Unique identifier for the vector record
-        doc_id = filename.replace(".json", "")
+        # Base ID from filename (e.g., "press_release_1")
+        base_doc_id = filename.replace(".json", "")
 
-        # 3. Add to ChromaDB
-        # Chroma automatically handles vectorizing doc_text using its built-in model
+        if not doc_text.strip():
+            continue
+
+        # 5. Split document text using LangChain
+        chunks = text_splitter.split_text(doc_text)
+
+        # Create unique IDs for every chunk (e.g., "press_release_1_chunk_0")
+        chunk_ids = [f"{base_doc_id}_chunk_{i}" for i in range(len(chunks))]
+        chunk_metadatas = [clean_metadata for _ in range(len(chunks))]
+
+        # 6. Add all chunks to ChromaDB
         collection.add(
-            documents=[doc_text], metadatas=[clean_metadata], ids=[doc_id]
+            documents=chunks, metadatas=chunk_metadatas, ids=chunk_ids
         )
 
-        print(f"Ingested into Vector DB: {filename}")
+        print(
+            f"Ingested into Vector DB: {filename} -> {len(chunks)} chunk(s)"
+        )
 
 print("\nVector Database successfully populated!")

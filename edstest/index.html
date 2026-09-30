@@ -2,47 +2,423 @@
 <html>
 <head>
     <title>EDS Chatbot</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <style>
+    * {
+        box-sizing: border-box;
+    }
+
+    body {
+        font-family: Arial, sans-serif;
+        margin: 0;
+        padding: 20px;
+    }
+
+    main {
+        width: 100%;
+        max-width: 900px;
+        margin: 0 auto;
+    }
+
+    #conversation {
+        width: 100%;
+        overflow-wrap: anywhere;
+    }
+
+    #chatForm {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        align-items: center;
+        margin-top: 20px;
+    }
+
+    #chatForm label {
+        width: 100%;
+    }
+
+    #question {
+        flex: 1;
+        min-width: 0;
+        padding: 10px;
+        font-size: 16px;
+    }
+
+    #sendButton {
+        padding: 10px 16px;
+        font-size: 16px;
+        cursor: pointer;
+    }
+
+    input:focus-visible,
+    button:focus-visible,
+    a:focus-visible {
+        outline: 3px solid #005fcc;
+        outline-offset: 2px;
+    }
+
+    a {
+        overflow-wrap: anywhere;
+    }
+
+    img,
+    video {
+        max-width: 100%;
+        height: auto;
+    }
+
+    @media (max-width: 600px) {
+
+        body {
+            padding: 12px;
+        }
+
+        h1 {
+            font-size: 1.6rem;
+        }
+
+        #chatForm {
+            flex-direction: column;
+            align-items: stretch;
+        }
+
+        #question,
+        #sendButton {
+            width: 100%;
+        }
+    }
+</style>
 </head>
 
 <body>
 
-    <p id="answer"></p>
+    <main>
 
-    <input
-        type="text"
-        id="question"
-        placeholder="Ask a question..."
-    >
+        <h1>EDS Chatbot</h1>
 
-    <button onclick="askQuestion()">Ask</button>
+        <section
+            id="conversation"
+            role="log"
+            aria-live="polite"
+            aria-relevant="additions text"
+            aria-label="Chat conversation"
+        ></section>
 
-    
+        <form id="chatForm">
+
+            <label for="question">
+                Ask EDS a question
+            </label>
+
+            <input
+                type="text"
+                id="question"
+                placeholder="Ask a question..."
+                autocomplete="off"
+            >
+
+            <button
+                id="sendButton"
+                type="submit"
+            >
+                Ask EDS
+            </button>
+
+        </form>
+
+    </main>
 
     <script>
 
         async function askQuestion() {
 
-            const question = document.getElementById("question").value;
-            const answer = document.getElementById("answer");
+            const questionInput =
+                document.getElementById("question");
 
-            answer.textContent = "Thinking...";
+            const question =
+                questionInput.value.trim();
 
-            const response = await fetch("http://127.0.0.1:8000/chat", {
-                method: "POST",
+            const conversation =
+                document.getElementById("conversation");
 
-                headers: {
-                    "Content-Type": "application/json"
-                },
+            const sendButton =
+                document.getElementById("sendButton");
 
-                body: JSON.stringify({
-                    question: question
-                })
-            });
+            if (question === "") {
+                return;
+            }
 
-            const data = await response.json();
+            // Disable the button while processing
+            sendButton.disabled = true;
 
-            answer.textContent = data.answer;
+            // Display the user's message
+            const userMessage =
+                document.createElement("p");
+
+            const userLabel =
+                document.createElement("strong");
+
+            userLabel.textContent = "You: ";
+
+            userMessage.appendChild(userLabel);
+
+            userMessage.appendChild(
+                document.createTextNode(question)
+            );
+
+            conversation.appendChild(userMessage);
+
+            // Clear the input box
+            questionInput.value = "";
+
+            // Create the AI response message
+            const aiMessage =
+                document.createElement("p");
+
+            const aiLabel =
+                document.createElement("strong");
+
+            aiLabel.textContent = "EDS: ";
+
+            const aiText =
+                document.createElement("span");
+
+            aiText.textContent = "Thinking...";
+
+            aiMessage.appendChild(aiLabel);
+            aiMessage.appendChild(aiText);
+
+            conversation.appendChild(aiMessage);
+
+            try {
+
+                const response = await fetch(
+                    "http://127.0.0.1:8000/chat",
+                    {
+                        method: "POST",
+
+                        headers: {
+                            "Content-Type":
+                                "application/json"
+                        },
+
+                        body: JSON.stringify({
+                            question: question
+                        })
+                    }
+                );
+
+                if (!response.ok) {
+                    throw new Error(
+                        "Server returned an error"
+                    );
+                }
+
+                const data =
+                    await response.json();
+
+                // Display unanswered questions differently
+                if (data.unanswered) {
+
+                    aiText.textContent =
+                        "I couldn't find relevant information in the EDS knowledge base to answer this question.";
+
+                    aiMessage.style.backgroundColor =
+                        "#f8d7da";
+
+                    aiMessage.style.border =
+                        "1px solid #f1aeb5";
+
+                    aiMessage.style.padding =
+                        "10px";
+
+                    aiMessage.style.fontWeight =
+                        "bold";
+
+                } else {
+
+                    aiText.textContent =
+                        data.answer;
+                }
+
+                // Display low-confidence warning
+                if (
+                    data.low_confidence &&
+                    !data.unanswered
+                ) {
+
+                    const warning =
+                        document.createElement("p");
+
+                    warning.setAttribute(
+                        "role",
+                        "status"
+                    );
+
+                    warning.textContent =
+                        "Warning: This answer may not be fully supported by the available EDS information.";
+
+                    warning.style.backgroundColor =
+                        "#fff3cd";
+
+                    warning.style.border =
+                        "1px solid #ffe69c";
+
+                    warning.style.padding =
+                        "10px";
+
+                    warning.style.fontWeight =
+                        "bold";
+
+                    conversation.appendChild(
+                        warning
+                    );
+                }
+
+                // Display sources
+                if (
+                    data.sources &&
+                    data.sources.length > 0
+                ) {
+
+                    const sourcesContainer =
+                        document.createElement("div");
+
+                    const sourcesTitle =
+                        document.createElement("strong");
+
+                    sourcesTitle.textContent =
+                        "Sources:";
+
+                    sourcesContainer.appendChild(
+                        sourcesTitle
+                    );
+
+                    const sourcesList =
+                        document.createElement("ul");
+
+                    data.sources.forEach(
+                        function(source) {
+
+                            const sourceItem =
+                                document.createElement(
+                                    "li"
+                                );
+
+                            const title =
+                                document.createElement(
+                                    "span"
+                                );
+
+                            title.textContent =
+                                source.document;
+
+                            sourceItem.appendChild(
+                                title
+                            );
+
+                            if (
+                                source.page !== undefined &&
+                                source.page !== null
+                            ) {
+
+                                const page =
+                                    document.createElement(
+                                        "span"
+                                    );
+
+                                page.textContent =
+                                    " - Page " +
+                                    source.page;
+
+                                sourceItem.appendChild(
+                                    page
+                                );
+                            }
+
+                            if (source.url) {
+
+                                const separator =
+                                    document.createTextNode(
+                                        " - "
+                                    );
+
+                                sourceItem.appendChild(
+                                    separator
+                                );
+
+                                const link =
+                                    document.createElement(
+                                        "a"
+                                    );
+
+                                link.href =
+                                    source.url;
+
+                                link.textContent =
+                                    "Open source";
+
+                                link.target =
+                                    "_blank";
+
+                                link.rel =
+                                    "noopener noreferrer";
+
+                                link.setAttribute(
+                                    "aria-label",
+                                    "Open source: " +
+                                    source.document
+                                );
+
+                                sourceItem.appendChild(
+                                    link
+                                );
+                            }
+
+                            sourcesList.appendChild(
+                                sourceItem
+                            );
+                        }
+                    );
+
+                    sourcesContainer.appendChild(
+                        sourcesList
+                    );
+
+                    conversation.appendChild(
+                        sourcesContainer
+                    );
+                }
+
+            } catch (error) {
+
+                aiText.textContent =
+                    "Sorry, something went wrong while processing your question. Please try again.";
+
+                console.error(error);
+
+            } finally {
+
+                sendButton.disabled =
+                    false;
+
+                questionInput.focus();
+            }
         }
+
+
+        document
+            .getElementById("chatForm")
+            .addEventListener(
+                "submit",
+                function(event) {
+
+                    event.preventDefault();
+
+                    askQuestion();
+                }
+            );
 
     </script>
 

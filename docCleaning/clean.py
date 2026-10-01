@@ -35,7 +35,7 @@ def process_single_pdf(pdf_path):
     """
 
     max_retries = 5
-    delay = 3
+    delay = 5  # Increased base delay slightly for quota stability
 
     for attempt in range(max_retries):
         try:
@@ -69,10 +69,10 @@ def process_single_pdf(pdf_path):
             # Handle rate limits (429) or temporary server unavailability (503)
             if e.code in (429, 503) and attempt < max_retries - 1:
                 print(
-                    f"   API Limit/Busy ({e.code}). Retrying in {delay}s... (Attempt {attempt + 1}/{max_retries})"
+                    f"   API Limit/Busy ({e.code}). Sleeping {delay}s before retry... (Attempt {attempt + 1}/{max_retries})"
                 )
                 time.sleep(delay)
-                delay *= 2
+                delay *= 2  # Exponential backoff: 5s, 10s, 20s, 40s
             else:
                 raise e
 
@@ -97,28 +97,56 @@ def batch_clean_folder(input_folder, output_folder):
         print(f"No PDF files found in '{abs_input}'.")
         return
 
-    print(f"Found {len(pdf_files)} PDF(s) to process...\n")
+    print(f"Found {len(pdf_files)} PDF(s) in folder...\n")
 
     for filename in pdf_files:
         full_pdf_path = os.path.join(abs_input, filename)
-        print(f"Processing: {filename}...")
+        json_filename = os.path.splitext(filename)[0] + ".json"
+        output_json_path = os.path.join(abs_output, json_filename)
+
+        # ---------------------------------------------------------------
+        # 1. SKIP LOGIC: Protect existing JSONs with manual edits/URLs
+        # ---------------------------------------------------------------
+        if os.path.exists(output_json_path):
+            print(
+                f"Skipping {filename}: JSON already exists in output directory."
+            )
+            continue
+
+        print(f"Processing new file: {filename}...")
 
         try:
-            data = process_single_pdf(full_pdf_path)
+            new_data = process_single_pdf(full_pdf_path)
 
-            json_filename = os.path.splitext(filename)[0] + ".json"
-            output_json_path = os.path.join(abs_output, json_filename)
+            # ---------------------------------------------------------------
+            # 2. MERGE LOGIC: Safely preserve any pre-existing custom metadata
+            # ---------------------------------------------------------------
+            if os.path.exists(output_json_path):
+                try:
+                    with open(output_json_path, "r", encoding="utf-8") as f:
+                        existing_data = json.load(f)
+
+                    existing_metadata = existing_data.get("metadata", {})
+                    new_metadata = new_data.get("metadata", {})
+
+                    # Preserve manual fields like 'url' if already present
+                    merged_metadata = {**new_metadata, **existing_metadata}
+                    new_data["metadata"] = merged_metadata
+                except Exception as merge_err:
+                    print(
+                        f"   Warning: Could not merge existing metadata ({merge_err}). Overwriting cleanly."
+                    )
 
             with open(output_json_path, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=4)
+                json.dump(new_data, f, indent=4, ensure_ascii=False)
 
             print(f"   Saved JSON to: {output_json_path}")
 
+            # Pace out requests to stay below RPM rate limits
+            time.sleep(3.0)
+
         except Exception as e:
             print(f"   Failed to process {filename}. Error: {e}")
-
-        # Sleep slightly between requests to stay within RPM boundaries
-        time.sleep(1.5)
 
     print("\nProcessing complete!")
 

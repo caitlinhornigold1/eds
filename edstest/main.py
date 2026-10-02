@@ -1,12 +1,23 @@
+import logging
 import os
-import chromadb
+import re
+from typing import Any, Dict
 
-from fastapi import FastAPI
+import chromadb
+from chromadb.errors import ChromaError
+from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 import ollama
 from pydantic import BaseModel
 
-app = FastAPI()
+# 1. Configure Terminal Logging (Outputs full technical stack traces to server console)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+logger = logging.getLogger("eds_api")
+
+app = FastAPI(title="EDS Environmental RAG API", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -15,32 +26,93 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 1. Dynamic Absolute Pathing for Vector DB
+# 2. Dynamic Absolute Pathing for Vector DB
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.abspath(os.path.join(SCRIPT_DIR, "my_vector_db"))
+COLLECTION_NAME = "eds_documents"
 
-chroma_client = chromadb.PersistentClient(path=DB_PATH)
-collection = chroma_client.get_collection(name="eds_documents")
+
+def get_db_collection():
+    """Helper function to obtain ChromaDB client & collection with error handling."""
+    try:
+        chroma_client = chromadb.PersistentClient(path=DB_PATH)
+        return chroma_client.get_collection(name=COLLECTION_NAME)
+    except Exception as e:
+        # CONSOLE: Log internal file path and DB connection details
+        logger.error(f"[DB CONNECTION FAILURE] Path '{DB_PATH}': {str(e)}", exc_info=True)
+        raise e
 
 
 class Question(BaseModel):
     question: str
 
 
+def sanitize_response(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Ensure no secret tokens, private paths, or raw authorization strings leak in response payloads."""
+    secret_patterns = [
+        r"AIzaSy[A-Za-z0-9_-]{35}",  # GCP / Gemini API Keys
+        r"sk-[A-Za-z0-9]{32,}",      # OpenAI / generic API secret keys
+        r"bearer\s+[A-Za-z0-9\-\._~\+\/]+=*",  # Bearer tokens
+    ]
+
+    def _clean_str(val: str) -> str:
+        for pattern in secret_patterns:
+            val = re.sub(pattern, "[REDACTED_SECRET]", val, flags=re.IGNORECASE)
+        return val
+
+    if "answer" in data and isinstance(data["answer"], str):
+        data["answer"] = _clean_str(data["answer"])
+
+    return data
+
+
+@app.get("/health", status_code=status.HTTP_200_OK)
+def health_check():
+    """Health endpoint to monitor application uptime and vector database status."""
+    try:
+        collection = get_db_collection()
+        doc_count = collection.count()
+        return {
+            "status": "healthy",
+            "database": "connected",
+            "collection": COLLECTION_NAME,
+            "document_chunk_count": doc_count,
+        }
+    except Exception as e:
+        # CONSOLE: Log technical error details
+        logger.error(f"[HEALTH CHECK FAILED] Database connectivity issue: {str(e)}", exc_info=True)
+        # WEBSITE: Return generic non-technical detail
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="The search service is currently undergoing maintenance. Please try again later.",
+        )
+
+
 @app.post("/chat")
 def chat(question: Question):
     user_query = question.question
 
-    # 1. Retrieve top matching document chunks (increased to 8 for multi-source coverage)
-    search_results = collection.query(
-        query_texts=[user_query],
-        n_results=8,
-    )
+    # --- Step 1: Query ChromaDB Vector Database ---
+    try:
+        collection = get_db_collection()
+        search_results = collection.query(
+            query_texts=[user_query],
+            n_results=8,
+        )
+    except (ChromaError, Exception) as db_err:
+        # CONSOLE: Detailed technical error & stack trace printed in server terminal
+        logger.error(f"[DATABASE QUERY ERROR] Query '{user_query}' failed: {str(db_err)}", exc_info=True)
 
-    retrieved_docs = search_results["documents"][0]
-    retrieved_metas = search_results["metadatas"][0]
+        # WEBSITE: Non-technical message returned to the user in the chatbot UI
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Our search service is temporarily unavailable. Please try your question again in a few moments.",
+        )
 
-    # 2. Deduplicate chunks & Map Sources to [Doc X] labels
+    retrieved_docs = search_results["documents"][0] if search_results.get("documents") else []
+    retrieved_metas = search_results["metadatas"][0] if search_results.get("metadatas") else []
+
+    # --- Step 2: Deduplicate Chunks & Map Sources ---
     seen_texts = set()
     source_map = {}
     formatted_context_blocks = []
@@ -49,7 +121,6 @@ def chat(question: Question):
     for doc, meta in zip(retrieved_docs, retrieved_metas):
         clean_text = doc.strip()
 
-        # Skip duplicate text chunks
         if clean_text in seen_texts:
             continue
         seen_texts.add(clean_text)
@@ -57,7 +128,6 @@ def chat(question: Question):
         document = meta.get("document", "Unknown Document")
         page = meta.get("page", "N/A")
 
-        # Assign a consistent label like [Doc 1], [Doc 2] per unique file
         if document not in source_map:
             source_map[document] = f"Doc {doc_counter}"
             doc_counter += 1
@@ -70,7 +140,7 @@ def chat(question: Question):
 
     context = "\n\n---\n\n".join(formatted_context_blocks)
 
-    # 3. Strict Zero-Hallucination System Prompt with Citation Rules
+    # --- Step 3: Zero-Hallucination System Prompt ---
     system_prompt = f"""
     You are a strict data-extraction assistant for the Environmental Defence Society (EDS).
     
@@ -88,20 +158,29 @@ def chat(question: Question):
     {user_query}
     """
 
-    # 4. Call Ollama
-    response = ollama.chat(
-        model="llama3.2",
-        messages=[{"role": "user", "content": system_prompt}],
-        options={"temperature": 0.0},
-    )
+    # --- Step 4: AI Model Inference ---
+    try:
+        response = ollama.chat(
+            model="llama3.2",
+            messages=[{"role": "user", "content": system_prompt}],
+            options={"temperature": 0.0},
+        )
+        answer = response["message"]["content"]
+    except Exception as model_err:
+        # CONSOLE: Detailed technical error & stack trace printed in server terminal
+        logger.error(f"[AI MODEL INFERENCE FAILURE] Model execution error for query '{user_query}': {str(model_err)}", exc_info=True)
 
-    answer = response["message"]["content"]
+        # WEBSITE: Non-technical message returned to the user in the chatbot UI
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="We ran into an issue generating your response. Please try asking your question again.",
+        )
 
     insufficient_phrase = "i do not have enough information in my database to answer"
     low_confidence = insufficient_phrase in answer.lower()
     fully_unsupported = answer.strip().lower().startswith(insufficient_phrase)
 
-    # 5. Extract Unique Sources for Response Payload (Processed outside the loop!)
+    # --- Step 5: Extract Unique Sources for Response Payload ---
     sources = []
     seen_sources = set()
 
@@ -133,9 +212,12 @@ def chat(question: Question):
 
             sources.append(source)
 
-    return {
+    response_payload = {
         "answer": answer,
         "sources": sources,
         "low_confidence": low_confidence,
         "unanswered": fully_unsupported,
     }
+
+    # Clean and return safe payload
+    return sanitize_response(response_payload)

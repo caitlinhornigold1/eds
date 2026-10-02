@@ -98,6 +98,7 @@ def chat(question: Question):
         search_results = collection.query(
             query_texts=[user_query],
             n_results=8,
+            include=["documents", "metadatas", "distances"],
         )
     except (ChromaError, Exception) as db_err:
         # CONSOLE: Detailed technical error & stack trace printed in server terminal
@@ -111,14 +112,15 @@ def chat(question: Question):
 
     retrieved_docs = search_results["documents"][0] if search_results.get("documents") else []
     retrieved_metas = search_results["metadatas"][0] if search_results.get("metadatas") else []
+    retrieved_distances = search_results["distances"][0] if search_results.get("distances") else []
 
-    # --- Step 2: Deduplicate Chunks & Map Sources ---
+    # --- Step 2: Deduplicate Chunks & Map Sources in Order of Relevance ---
     seen_texts = set()
     source_map = {}
     formatted_context_blocks = []
     doc_counter = 1
 
-    for doc, meta in zip(retrieved_docs, retrieved_metas):
+    for doc, meta, dist in zip(retrieved_docs, retrieved_metas, retrieved_distances):
         clean_text = doc.strip()
 
         if clean_text in seen_texts:
@@ -128,6 +130,7 @@ def chat(question: Question):
         document = meta.get("document", "Unknown Document")
         page = meta.get("page", "N/A")
 
+        # First occurrence of a document establishes its rank label (Doc 1 = most relevant)
         if document not in source_map:
             source_map[document] = f"Doc {doc_counter}"
             doc_counter += 1
@@ -135,7 +138,7 @@ def chat(question: Question):
         doc_label = source_map[document]
 
         formatted_context_blocks.append(
-            f"SOURCE [{doc_label}] (Document: {document}, Page {page}):\n{clean_text}"
+            f"SOURCE [{doc_label}] (Document: {document}, Page {page}, Distance: {dist:.3f}):\n{clean_text}"
         )
 
     context = "\n\n---\n\n".join(formatted_context_blocks)
@@ -180,12 +183,12 @@ def chat(question: Question):
     low_confidence = insufficient_phrase in answer.lower()
     fully_unsupported = answer.strip().lower().startswith(insufficient_phrase)
 
-    # --- Step 5: Extract Unique Sources for Response Payload ---
+    # --- Step 5: Extract Unique Sources Preserving Exact Relevance Order ---
     sources = []
     seen_sources = set()
 
     if not fully_unsupported:
-        for meta in retrieved_metas:
+        for rank_idx, (meta, dist) in enumerate(zip(retrieved_metas, retrieved_distances), start=1):
             document = meta.get("document", "Unknown Document")
             page = meta.get("page")
             url = meta.get("url")
@@ -202,6 +205,8 @@ def chat(question: Question):
             source = {
                 "label": doc_label,
                 "document": document,
+                "rank": rank_idx,
+                "distance": round(dist, 4),
             }
 
             if page is not None:

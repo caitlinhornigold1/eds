@@ -1,0 +1,13 @@
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Local databases and vector stores
+edstest/my_vector_db/
+*.db
+*.sqlite3
+
+# Python Virtual Environments
+venv/
+docCleaning/venv/

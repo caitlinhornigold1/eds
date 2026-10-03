@@ -1,101 +1,259 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>EDS Chatbot</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <title>EDS Chatbot Prototype</title>
 
     <style>
-    * {
-        box-sizing: border-box;
-    }
-
-    body {
-        font-family: Arial, sans-serif;
-        margin: 0;
-        padding: 20px;
-    }
-
-    main {
-        width: 100%;
-        max-width: 900px;
-        margin: 0 auto;
-    }
-
-    #conversation {
-        width: 100%;
-        overflow-wrap: anywhere;
-    }
-
-    #chatForm {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 10px;
-        align-items: center;
-        margin-top: 20px;
-    }
-
-    #chatForm label {
-        width: 100%;
-    }
-
-    #question {
-        flex: 1;
-        min-width: 0;
-        padding: 10px;
-        font-size: 16px;
-    }
-
-    #sendButton {
-        padding: 10px 16px;
-        font-size: 16px;
-        cursor: pointer;
-    }
-
-    input:focus-visible,
-    button:focus-visible,
-    a:focus-visible {
-        outline: 3px solid #005fcc;
-        outline-offset: 2px;
-    }
-
-    a {
-        overflow-wrap: anywhere;
-    }
-
-    img,
-    video {
-        max-width: 100%;
-        height: auto;
-    }
-
-    @media (max-width: 600px) {
+        * {
+            box-sizing: border-box;
+        }
 
         body {
-            padding: 12px;
+            margin: 0;
+            font-family: Arial, sans-serif;
         }
 
-        h1 {
-            font-size: 1.6rem;
+        /* Floating chat launcher */
+        #chatLauncher {
+            position: fixed;
+            right: 24px;
+            bottom: 24px;
+
+            width: 64px;
+            height: 64px;
+
+            border: none;
+            border-radius: 50%;
+
+            background-color: #007a9e;
+            color: white;
+
+            font-size: 28px;
+            cursor: pointer;
+
+            box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+
+            z-index: 1001;
         }
 
-        #chatForm {
+        #chatLauncher:hover {
+            background-color: #00607c;
+        }
+
+        /* Chat panel */
+        #chatPanel {
+            position: fixed;
+
+            right: 24px;
+            bottom: 100px;
+
+            width: 400px;
+            height: 600px;
+
+            max-height: calc(100vh - 130px);
+
+            background-color: white;
+
+            border-radius: 14px;
+
+            box-shadow:
+                0 8px 30px rgba(0, 0, 0, 0.25);
+
+            overflow: hidden;
+
+            display: flex;
             flex-direction: column;
-            align-items: stretch;
+
+            z-index: 1000;
         }
 
-        #question,
-        #sendButton {
-            width: 100%;
+        #chatPanel[hidden] {
+            display: none;
         }
-    }
-</style>
+
+        /* Header */
+        #chatHeader {
+            background-color: #007a9e;
+            color: white;
+
+            padding: 14px 16px;
+
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        #chatHeader h2 {
+            margin: 0;
+            font-size: 1.2rem;
+        }
+
+        #closeChat {
+            border: none;
+            background: transparent;
+
+            color: white;
+
+            font-size: 28px;
+            line-height: 1;
+
+            cursor: pointer;
+        }
+
+        /* Conversation */
+        #conversation {
+            flex: 1;
+
+            padding: 16px;
+
+            overflow-y: auto;
+            overflow-wrap: anywhere;
+
+            background-color: white;
+        }
+
+        #conversation p {
+            line-height: 1.4;
+        }
+
+        /* Question form */
+        #chatForm {
+            border-top: 1px solid #ddd;
+
+            padding: 12px;
+
+            display: flex;
+            gap: 8px;
+
+            background-color: #f7f7f7;
+        }
+
+        .visuallyHidden {
+            position: absolute;
+
+            width: 1px;
+            height: 1px;
+
+            padding: 0;
+            margin: -1px;
+
+            overflow: hidden;
+            clip: rect(0, 0, 0, 0);
+
+            white-space: nowrap;
+            border: 0;
+        }
+
+        #question {
+            flex: 1;
+            min-width: 0;
+
+            padding: 10px;
+
+            font-size: 16px;
+
+            border: 1px solid #aaa;
+            border-radius: 6px;
+        }
+
+        #sendButton {
+            padding: 10px 14px;
+
+            font-size: 15px;
+
+            cursor: pointer;
+
+            border: none;
+            border-radius: 6px;
+
+            background-color: #007a9e;
+            color: white;
+        }
+
+        #sendButton:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        input:focus-visible,
+        button:focus-visible,
+        a:focus-visible {
+            outline: 3px solid #005fcc;
+            outline-offset: 2px;
+        }
+
+        a {
+            overflow-wrap: anywhere;
+        }
+
+        @media (max-width: 600px) {
+            #chatLauncher {
+                right: 16px;
+                bottom: 16px;
+            }
+
+            #chatPanel {
+                right: 12px;
+                bottom: 92px;
+
+                width: calc(100vw - 24px);
+                height: 72vh;
+
+                max-height: none;
+            }
+
+            #chatForm {
+                flex-direction: column;
+            }
+
+            #question,
+            #sendButton {
+                width: 100%;
+            }
+        }
+    </style>
 </head>
 
 <body>
 
-    <main>
+    <button
+        id="chatLauncher"
+        type="button"
+        aria-label="Open EDS chatbot"
+        aria-controls="chatPanel"
+        aria-expanded="false"
+    >
+        &#128172;
+    </button>
 
-        <h1>EDS Chatbot</h1>
+
+    <section
+        id="chatPanel"
+        aria-label="EDS chatbot"
+        hidden
+    >
+
+        <header id="chatHeader">
+
+            <h2>EDS Chatbot</h2>
+
+            <button
+                id="closeChat"
+                type="button"
+                aria-label="Close EDS chatbot"
+            >
+                &times;
+            </button>
+
+        </header>
+
 
         <section
             id="conversation"
@@ -105,9 +263,13 @@
             aria-label="Chat conversation"
         ></section>
 
+
         <form id="chatForm">
 
-            <label for="question">
+            <label
+                for="question"
+                class="visuallyHidden"
+            >
                 Ask EDS a question
             </label>
 
@@ -127,32 +289,102 @@
 
         </form>
 
-    </main>
+    </section>
+
 
     <script>
+        const chatLauncher =
+            document.getElementById("chatLauncher");
+
+        const chatPanel =
+            document.getElementById("chatPanel");
+
+        const closeChatButton =
+            document.getElementById("closeChat");
+
+        const questionInput =
+            document.getElementById("question");
+
+
+        function openChat() {
+            chatPanel.hidden = false;
+
+            chatLauncher.setAttribute(
+                "aria-expanded",
+                "true"
+            );
+
+            questionInput.focus();
+        }
+
+
+        function closeChat() {
+            chatPanel.hidden = true;
+
+            chatLauncher.setAttribute(
+                "aria-expanded",
+                "false"
+            );
+
+            chatLauncher.focus();
+        }
+
+
+        chatLauncher.addEventListener(
+            "click",
+            function() {
+                if (chatPanel.hidden) {
+                    openChat();
+                } else {
+                    closeChat();
+                }
+            }
+        );
+
+
+        closeChatButton.addEventListener(
+            "click",
+            closeChat
+        );
+
+
+        document.addEventListener(
+            "keydown",
+            function(event) {
+                if (
+                    event.key === "Escape" &&
+                    !chatPanel.hidden
+                ) {
+                    closeChat();
+                }
+            }
+        );
+
 
         async function askQuestion() {
-
-            const questionInput =
-                document.getElementById("question");
-
             const question =
                 questionInput.value.trim();
 
             const conversation =
-                document.getElementById("conversation");
+                document.getElementById(
+                    "conversation"
+                );
 
             const sendButton =
-                document.getElementById("sendButton");
+                document.getElementById(
+                    "sendButton"
+                );
 
             if (question === "") {
                 return;
             }
 
-            // Disable the button while processing
+
             sendButton.disabled = true;
 
-            // Display the user's message
+
+            /* User message */
+
             const userMessage =
                 document.createElement("p");
 
@@ -167,12 +399,16 @@
                 document.createTextNode(question)
             );
 
-            conversation.appendChild(userMessage);
+            conversation.appendChild(
+                userMessage
+            );
 
-            // Clear the input box
+
             questionInput.value = "";
 
-            // Create the AI response message
+
+            /* AI loading message */
+
             const aiMessage =
                 document.createElement("p");
 
@@ -189,25 +425,34 @@
             aiMessage.appendChild(aiLabel);
             aiMessage.appendChild(aiText);
 
-            conversation.appendChild(aiMessage);
+            conversation.appendChild(
+                aiMessage
+            );
+
+
+            conversation.scrollTop =
+                conversation.scrollHeight;
+
 
             try {
+                const response =
+                    await fetch(
+                        "http://127.0.0.1:8000/chat",
+                        {
+                            method: "POST",
 
-                const response = await fetch(
-                    "http://127.0.0.1:8000/chat",
-                    {
-                        method: "POST",
+                            headers: {
+                                "Content-Type":
+                                    "application/json"
+                            },
 
-                        headers: {
-                            "Content-Type":
-                                "application/json"
-                        },
+                            body:
+                                JSON.stringify({
+                                    question: question
+                                })
+                        }
+                    );
 
-                        body: JSON.stringify({
-                            question: question
-                        })
-                    }
-                );
 
                 if (!response.ok) {
                     throw new Error(
@@ -215,12 +460,14 @@
                     );
                 }
 
+
                 const data =
                     await response.json();
 
-                // Display unanswered questions differently
-                if (data.unanswered) {
 
+                /* Unanswered question */
+
+                if (data.unanswered) {
                     aiText.textContent =
                         "I couldn't find relevant information in the EDS knowledge base to answer this question.";
 
@@ -237,17 +484,17 @@
                         "bold";
 
                 } else {
-
                     aiText.textContent =
                         data.answer;
                 }
 
-                // Display low-confidence warning
+
+                /* Low-confidence warning */
+
                 if (
                     data.low_confidence &&
                     !data.unanswered
                 ) {
-
                     const warning =
                         document.createElement("p");
 
@@ -276,17 +523,22 @@
                     );
                 }
 
-                // Display sources
+
+                /* Sources */
+
                 if (
                     data.sources &&
                     data.sources.length > 0
                 ) {
-
                     const sourcesContainer =
-                        document.createElement("div");
+                        document.createElement(
+                            "div"
+                        );
 
                     const sourcesTitle =
-                        document.createElement("strong");
+                        document.createElement(
+                            "strong"
+                        );
 
                     sourcesTitle.textContent =
                         "Sources:";
@@ -295,8 +547,12 @@
                         sourcesTitle
                     );
 
+
                     const sourcesList =
-                        document.createElement("ul");
+                        document.createElement(
+                            "ul"
+                        );
+
 
                     data.sources.forEach(
                         function(source) {
@@ -305,6 +561,7 @@
                                 document.createElement(
                                     "li"
                                 );
+
 
                             const title =
                                 document.createElement(
@@ -318,11 +575,11 @@
                                 title
                             );
 
+
                             if (
                                 source.page !== undefined &&
                                 source.page !== null
                             ) {
-
                                 const page =
                                     document.createElement(
                                         "span"
@@ -337,8 +594,8 @@
                                 );
                             }
 
-                            if (source.url) {
 
+                            if (source.url) {
                                 const separator =
                                     document.createTextNode(
                                         " - "
@@ -347,6 +604,7 @@
                                 sourceItem.appendChild(
                                     separator
                                 );
+
 
                                 const link =
                                     document.createElement(
@@ -376,11 +634,13 @@
                                 );
                             }
 
+
                             sourcesList.appendChild(
                                 sourceItem
                             );
                         }
                     );
+
 
                     sourcesContainer.appendChild(
                         sourcesList
@@ -391,19 +651,22 @@
                     );
                 }
 
-            } catch (error) {
 
+            } catch (error) {
                 aiText.textContent =
                     "Sorry, something went wrong while processing your question. Please try again.";
 
                 console.error(error);
 
-            } finally {
 
+            } finally {
                 sendButton.disabled =
                     false;
 
                 questionInput.focus();
+
+                conversation.scrollTop =
+                    conversation.scrollHeight;
             }
         }
 
@@ -413,13 +676,11 @@
             .addEventListener(
                 "submit",
                 function(event) {
-
                     event.preventDefault();
 
                     askQuestion();
                 }
             );
-
     </script>
 
 </body>

@@ -5,10 +5,12 @@ from typing import Any, Dict
 
 import chromadb
 from chromadb.errors import ChromaError
-from fastapi import FastAPI, HTTPException, status
+from fastapi import FastAPI, HTTPException, Request, status
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 import ollama
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 
 # 1. Configure Terminal Logging (Outputs full technical stack traces to server console)
 logging.basicConfig(
@@ -22,6 +24,7 @@ app = FastAPI(title="EDS Environmental RAG API", version="1.0.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -43,8 +46,34 @@ def get_db_collection():
         raise e
 
 
+# ------------------------------------------------------------------
+# Request & Response Schemas with Strict Input Validation
+# ------------------------------------------------------------------
 class Question(BaseModel):
-    question: str
+    """Input payload model with length constraints and custom sanitization."""
+
+    question: str = Field(
+        ...,
+        min_length=1,
+        max_length=1000,
+        description="User search query or question",
+        examples=["What are the rules for marine protected areas?"],
+    )
+
+    @field_validator("question")
+    @classmethod
+    def validate_and_sanitize_question(cls, value: str) -> str:
+        # Strip leading/trailing whitespace
+        cleaned = value.strip()
+
+        # Reject whitespace-only or blank inputs
+        if not cleaned:
+            raise ValueError("Question cannot be empty or contain only whitespace.")
+
+        # Strip null bytes and control characters safely
+        cleaned = cleaned.replace("\x00", "")
+
+        return cleaned
 
 
 def sanitize_response(data: Dict[str, Any]) -> Dict[str, Any]:
@@ -66,6 +95,40 @@ def sanitize_response(data: Dict[str, Any]) -> Dict[str, Any]:
     return data
 
 
+# ------------------------------------------------------------------
+# Custom Exception Handler for Input Validation Errors
+# ------------------------------------------------------------------
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """Intercepts validation failures, logs technical details, and returns
+
+    a sanitized 422 JSON response to the user.
+    """
+    logger.warning(
+        f"[INPUT REJECTED] Path: {request.url.path} | Technical Error: {exc.errors()}"
+    )
+
+    first_error = exc.errors()[0]
+    error_type = first_error.get("type", "")
+
+    if "string_above_max_length" in error_type or "max_length" in error_type:
+        user_detail = (
+            "Your question is too long. Please limit your input to 1,000 characters."
+        )
+    elif "value_error" in error_type or "min_length" in error_type:
+        user_detail = "Please enter a valid question before submitting."
+    else:
+        user_detail = "Invalid request format or parameter types provided."
+
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content={"detail": user_detail},
+    )
+
+
+# ------------------------------------------------------------------
+# API Endpoints
+# ------------------------------------------------------------------
 @app.get("/health", status_code=status.HTTP_200_OK)
 def health_check():
     """Health endpoint to monitor application uptime and vector database status."""
@@ -145,21 +208,23 @@ def chat(question: Question):
 
     # --- Step 3: Zero-Hallucination System Prompt ---
     system_prompt = f"""
-    You are a strict data-extraction assistant for the Environmental Defence Society (EDS).
-    
-    STRICT RULES:
-    1. Answer the question using ONLY the verbatim facts in the CONTEXT below.
-    2. Every factual statement or claim MUST be cited inline using its corresponding source tag, e.g., [Doc 1] or [Doc 2].
-    3. DO NOT infer, extrapolate, or assume any politician's or party's stance unless explicitly stated in the context.
-    4. If the provided context does not contain enough information to answer fully, state what is known from the context without adding meta-commentary about your database.
-    5. If the provided context contains NO relevant information, state: "I do not have enough information in my database to answer this."
+    You are the EDS information assistant.
 
-    CONTEXT:
-    {context}
+Answer the user's question clearly and accurately using the retrieved EDS sources as your primary evidence.
 
-    USER QUESTION:
-    {user_query}
-    """
+Important rules:
+1. Grounding: Base your answer strictly on the facts provided in the CONTEXT below. Do not invent or extrapolate beyond the text.
+2. Accurate Entity Distinctions:
+   - Do NOT equate a biological species with a commercial activity. 
+   - State what the subject is first (e.g., a species of fish), and then describe its management or fishery status (e.g., "It is targeted by a major inshore commercial fishery [Doc 1]").
+3. Unsupported Queries: If the provided context contains NO relevant information, state verbatim: "I do not have enough information in my database to answer this."
+
+CONTEXT:
+{context}
+
+USER QUESTION:
+{user_query}
+"""
 
     # --- Step 4: AI Model Inference ---
     try:
@@ -183,7 +248,7 @@ def chat(question: Question):
     low_confidence = insufficient_phrase in answer.lower()
     fully_unsupported = answer.strip().lower().startswith(insufficient_phrase)
 
-    # --- Step 5: Extract Unique Sources Preserving Exact Relevance Order ---
+    # --- Step 5: Extract Unique Sources Preserving Exact Relevance Order & URL Fallbacks ---
     sources = []
     seen_sources = set()
 
@@ -192,6 +257,11 @@ def chat(question: Question):
             document = meta.get("document", "Unknown Document")
             page = meta.get("page")
             url = meta.get("url")
+
+            # Fallback URL generator if empty/missing in vector metadata
+            if not url and document != "Unknown Document":
+                clean_filename = document.replace(" ", "_")
+                url = f"https://www.eds.org.nz/publications/{clean_filename}"
 
             source_key = (document, page, url)
 

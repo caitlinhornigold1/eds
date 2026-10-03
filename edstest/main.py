@@ -1,16 +1,25 @@
+from pathlib import Path
+
 import chromadb
-
-from fastapi import FastAPI
-
-from fastapi.middleware.cors import CORSMiddleware
-
 import ollama
 
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 
-app = FastAPI()
+# ---------------------------------------------------------
+# Project paths
+# ---------------------------------------------------------
 
+BASE_DIR = Path(__file__).resolve().parent
+
+
+# ---------------------------------------------------------
+# FastAPI
+# ---------------------------------------------------------
+
+app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
@@ -20,99 +29,226 @@ app.add_middleware(
 )
 
 
-# 1. Connect to the ChromaDB vector database
+# ---------------------------------------------------------
+# ChromaDB
+# ---------------------------------------------------------
 
-chroma_client = chromadb.PersistentClient(path="./my_vector_db")
+chroma_client = chromadb.PersistentClient(
+    path=str(BASE_DIR / "my_vector_db")
+)
 
-collection = chroma_client.get_collection(name="eds_documents")
+collection = chroma_client.get_collection(
+    name="eds_documents"
+)
 
+
+# ---------------------------------------------------------
+# Request model
+# ---------------------------------------------------------
 
 class Question(BaseModel):
-
     question: str
 
 
+# ---------------------------------------------------------
+# Chat endpoint
+# ---------------------------------------------------------
+
 @app.post("/chat")
 def chat(question: Question):
-    user_query = question.question
 
-    # 1. Retrieve top matching document chunks
+    user_query = question.question.strip()
+
+    if not user_query:
+        raise HTTPException(
+            status_code=400,
+            detail="A question is required."
+        )
+
+
+    # -----------------------------------------------------
+    # 1. Retrieve relevant document chunks
+    # -----------------------------------------------------
+
     search_results = collection.query(
         query_texts=[user_query],
-        n_results=5,
+        n_results=1,
     )
 
-    retrieved_docs = search_results["documents"][0]
-    retrieved_metas = search_results["metadatas"][0]
+    retrieved_docs = (
+        search_results.get("documents", [[]])[0] or []
+    )
+
+    retrieved_metas = (
+        search_results.get("metadatas", [[]])[0] or []
+    )
+
+
+    # -----------------------------------------------------
+    # 2. Build context
+    # -----------------------------------------------------
 
     context = ""
+
     for idx, (doc, meta) in enumerate(
-        zip(retrieved_docs, retrieved_metas), start=1
+        zip(retrieved_docs, retrieved_metas),
+        start=1
     ):
-        source_title = meta.get("document", "Unknown Document")
-        context += f"\n--- DOCUMENT SOURCE {idx}: {source_title} ---\n{doc}\n"
 
-    # 2. Strict Zero-Hallucination System Prompt
+        source_title = meta.get(
+            "document",
+            "Unknown Document"
+        )
+
+        context += (
+            f"\n--- DOCUMENT SOURCE {idx}: "
+            f"{source_title} ---\n"
+            f"{doc}\n"
+        )
+
+
+    # -----------------------------------------------------
+    # 3. Strict grounding prompt
+    # -----------------------------------------------------
+
     system_prompt = f"""
-    You are a strict data-extraction assistant for the Environmental Defence Society (EDS).
-    
-    STRICT RULES:
-    1. Answer the question using ONLY the verbatim facts in the CONTEXT below.
-    2. DO NOT infer, extrapolate, or assume any politician's or party's stance unless it is EXPLICITLY stated in the context.
-    3. If a political party or person is NOT mentioned regarding a specific topic, DO NOT include them in your summary.
-    4. Answer the question using ONLY the provided context below. If the context does not contain enough information to answer fully, state what is known from the context without adding meta-commentary about your database.
-    5. If the provided context does not contain any information to with, state: "I do not have enough information in my database to answer this."
+You are a strict data-extraction assistant for the
+Environmental Defence Society (EDS).
 
-    CONTEXT:
-    {context}
+STRICT RULES:
 
-    USER QUESTION:
-    {user_query}
-    """
+1. Answer the user's question using ONLY facts contained
+   in the CONTEXT below.
 
-       # 3. Call Ollama with temperature=0.0 to prevent creative leaps
-    response = ollama.chat(
-        model="llama3.2",
-        messages=[{"role": "user", "content": system_prompt}],
-        options={
-            "temperature": 0.0
-        },
-    )
+2. Do not infer, extrapolate, assume, or invent facts that
+   are not explicitly supported by the context.
 
-    answer = response["message"]["content"]
+3. Do not assume a politician's, political party's,
+   organisation's, or person's position unless it is
+   explicitly stated in the context.
 
-    
+4. If a political party or person is not mentioned in
+   relation to a specific topic, do not include them in
+   the answer.
+
+5. If the context contains enough information to answer
+   only part of the question, answer only the supported
+   part.
+
+6. If the context contains no relevant information that
+   can answer the question, respond exactly with:
+
+   I do not have enough information in my database to answer this.
+
+7. Keep the response clear and understandable for a
+   general user.
+
+CONTEXT:
+{context}
+
+USER QUESTION:
+{user_query}
+"""
+
+
+    # -----------------------------------------------------
+    # 4. Generate answer using Ollama
+    # -----------------------------------------------------
+
+    try:
+
+        response = ollama.chat(
+            model="llama3.2",
+
+            messages=[
+                {
+                    "role": "user",
+                    "content": system_prompt
+                }
+            ],
+
+            options={
+                "temperature": 0.0
+            }
+        )
+
+        answer = (
+            response["message"]["content"]
+            or ""
+        ).strip()
+
+    except Exception as error:
+
+        print(
+            f"Ollama error: {error}"
+        )
+
+        raise HTTPException(
+            status_code=502,
+            detail="The AI service is currently unavailable."
+        )
+
+
+    if not answer:
+
+        answer = (
+            "I do not have enough information "
+            "in my database to answer this."
+        )
+
+
+    # -----------------------------------------------------
+    # 5. Confidence / unanswered status
+    # -----------------------------------------------------
+
     insufficient_phrase = (
-        "i do not have enough information in my database to answer"
+        "i do not have enough information "
+        "in my database to answer"
     )
 
-    # Show a warning whenever the model indicates that the available
-    # information is not enough to fully answer the question.
-    low_confidence = insufficient_phrase in answer.lower()
-
-    # A response is fully unsupported when it begins with the
-    # insufficient-information message rather than providing
-    # supported information first.
-    fully_unsupported = answer.strip().lower().startswith(
+    low_confidence = (
         insufficient_phrase
+        in answer.lower()
     )
 
-    # 4. Prepare source information for the frontend
+    fully_unsupported = (
+        answer
+        .strip()
+        .lower()
+        .startswith(insufficient_phrase)
+    )
+
+
+    # -----------------------------------------------------
+    # 6. Prepare sources
+    # -----------------------------------------------------
+
     sources = []
+
     seen_sources = set()
 
     for meta in retrieved_metas:
-        document = meta.get("document", "Unknown Document")
+
+        document = meta.get(
+            "document",
+            "Unknown Document"
+        )
+
         page = meta.get("page")
         url = meta.get("url")
 
-        # Prevent duplicate sources from being displayed
-        source_key = (document, page, url)
+        source_key = (
+            document,
+            page,
+            url
+        )
 
         if source_key in seen_sources:
             continue
 
-        seen_sources.add(source_key)
+        seen_sources.add(
+            source_key
+        )
 
         source = {
             "document": document
@@ -124,14 +260,22 @@ def chat(question: Question):
         if url:
             source["url"] = url
 
-        sources.append(source)
+        sources.append(
+            source
+        )
 
-            # Do not show retrieved sources when there was not enough
-            # information to support an answer
-        if fully_unsupported:
-            sources = []
 
-        return {
+    # Do not show unrelated sources for completely
+    # unanswered questions
+    if fully_unsupported:
+        sources = []
+
+
+    # -----------------------------------------------------
+    # 7. Return response to frontend
+    # -----------------------------------------------------
+
+    return {
         "answer": answer,
         "sources": sources,
         "low_confidence": low_confidence,

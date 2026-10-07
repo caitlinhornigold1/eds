@@ -12,7 +12,7 @@ from fastapi.responses import JSONResponse
 import ollama
 from pydantic import BaseModel, Field, field_validator
 
-# 1. Configure Terminal Logging (Outputs full technical stack traces to server console)
+# 1. Configure Terminal Logging
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -34,6 +34,10 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.abspath(os.path.join(SCRIPT_DIR, "my_vector_db"))
 COLLECTION_NAME = "eds_documents"
 
+# Maximum distance allowed for a retrieved document chunk to be considered relevant.
+# Chunks above this threshold will not be attached as sources.
+MAX_SOURCE_DISTANCE = 1.15
+
 
 def get_db_collection():
     """Helper function to obtain ChromaDB client & collection with error handling."""
@@ -41,13 +45,12 @@ def get_db_collection():
         chroma_client = chromadb.PersistentClient(path=DB_PATH)
         return chroma_client.get_collection(name=COLLECTION_NAME)
     except Exception as e:
-        # CONSOLE: Log internal file path and DB connection details
         logger.error(f"[DB CONNECTION FAILURE] Path '{DB_PATH}': {str(e)}", exc_info=True)
         raise e
 
 
 # ------------------------------------------------------------------
-# Request & Response Schemas with Strict Input Validation
+# Request & Response Schemas
 # ------------------------------------------------------------------
 class Question(BaseModel):
     """Input payload model with length constraints and custom sanitization."""
@@ -63,25 +66,19 @@ class Question(BaseModel):
     @field_validator("question")
     @classmethod
     def validate_and_sanitize_question(cls, value: str) -> str:
-        # Strip leading/trailing whitespace
         cleaned = value.strip()
-
-        # Reject whitespace-only or blank inputs
         if not cleaned:
             raise ValueError("Question cannot be empty or contain only whitespace.")
-
-        # Strip null bytes and control characters safely
         cleaned = cleaned.replace("\x00", "")
-
         return cleaned
 
 
 def sanitize_response(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Ensure no secret tokens, private paths, or raw authorization strings leak in response payloads."""
+    """Ensure no secret tokens leak in response payloads."""
     secret_patterns = [
-        r"AIzaSy[A-Za-z0-9_-]{35}",  # GCP / Gemini API Keys
-        r"sk-[A-Za-z0-9]{32,}",      # OpenAI / generic API secret keys
-        r"bearer\s+[A-Za-z0-9\-\._~\+\/]+=*",  # Bearer tokens
+        r"AIzaSy[A-Za-z0-9_-]{35}",
+        r"sk-[A-Za-z0-9]{32,}",
+        r"bearer\s+[A-Za-z0-9\-\._~\+\/]+=*",
     ]
 
     def _clean_str(val: str) -> str:
@@ -96,14 +93,11 @@ def sanitize_response(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 # ------------------------------------------------------------------
-# Custom Exception Handler for Input Validation Errors
+# Exception Handlers
 # ------------------------------------------------------------------
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    """Intercepts validation failures, logs technical details, and returns
-
-    a sanitized 422 JSON response to the user.
-    """
+    """Intercepts validation failures and returns a sanitized 422 response."""
     logger.warning(
         f"[INPUT REJECTED] Path: {request.url.path} | Technical Error: {exc.errors()}"
     )
@@ -112,9 +106,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     error_type = first_error.get("type", "")
 
     if "string_above_max_length" in error_type or "max_length" in error_type:
-        user_detail = (
-            "Your question is too long. Please limit your input to 1,000 characters."
-        )
+        user_detail = "Your question is too long. Please limit your input to 1,000 characters."
     elif "value_error" in error_type or "min_length" in error_type:
         user_detail = "Please enter a valid question before submitting."
     else:
@@ -142,9 +134,7 @@ def health_check():
             "document_chunk_count": doc_count,
         }
     except Exception as e:
-        # CONSOLE: Log technical error details
         logger.error(f"[HEALTH CHECK FAILED] Database connectivity issue: {str(e)}", exc_info=True)
-        # WEBSITE: Return generic non-technical detail
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="The search service is currently undergoing maintenance. Please try again later.",
@@ -155,6 +145,28 @@ def health_check():
 def chat(question: Question):
     user_query = question.question
 
+    # --- Step 0: Early Exit for Small Talk / Greetings / Farewells ---
+    normalized_query = re.sub(r"[^\w\s]", "", user_query.strip().lower())
+
+    greetings = {"hi", "hello", "hey", "kia ora", "greetings", "good morning", "good afternoon", "good evening"}
+    farewells = {"bye", "goodbye", "see ya", "see you", "farewell", "thanks", "thank you", "cheers"}
+
+    if normalized_query in greetings:
+        return {
+            "answer": "Kia ora! How can I help you with Environmental Defence Society (EDS) publications or policy documents today?",
+            "sources": [],
+            "low_confidence": False,
+            "unanswered": False,
+        }
+
+    if normalized_query in farewells:
+        return {
+            "answer": "Goodbye! Feel free to reach out whenever you have questions about EDS documents or environmental policy.",
+            "sources": [],
+            "low_confidence": False,
+            "unanswered": False,
+        }
+
     # --- Step 1: Query ChromaDB Vector Database ---
     try:
         collection = get_db_collection()
@@ -164,10 +176,7 @@ def chat(question: Question):
             include=["documents", "metadatas", "distances"],
         )
     except (ChromaError, Exception) as db_err:
-        # CONSOLE: Detailed technical error & stack trace printed in server terminal
         logger.error(f"[DATABASE QUERY ERROR] Query '{user_query}' failed: {str(db_err)}", exc_info=True)
-
-        # WEBSITE: Non-technical message returned to the user in the chatbot UI
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Our search service is temporarily unavailable. Please try your question again in a few moments.",
@@ -193,7 +202,6 @@ def chat(question: Question):
         document = meta.get("document", "Unknown Document")
         page = meta.get("page", "N/A")
 
-        # First occurrence of a document establishes its rank label (Doc 1 = most relevant)
         if document not in source_map:
             source_map[document] = f"Doc {doc_counter}"
             doc_counter += 1
@@ -207,26 +215,30 @@ def chat(question: Question):
     context = "\n\n---\n\n".join(formatted_context_blocks)
 
     # --- Step 3: Zero-Hallucination System Prompt ---
-    system_prompt = f"""
-    You are the EDS information assistant.
+    system_prompt = f"""You are the EDS information assistant.
 
 Answer the user's question clearly and accurately using the retrieved EDS sources as your primary evidence.
 
-Important rules:
-1. Grounding & Synthesis: Answer the user's question thoroughly by synthesizing all relevant facts, legal principles, and details found in the CONTEXT below. Do NOT introduce outside facts not supported by the context.
-2. Accurate Entity Distinctions:
-   - Do NOT equate a biological species with a commercial activity. 
-   - State what the subject is first (e.g., a species of fish), and then describe its management or fishery status (e.g., "It is targeted by a major inshore commercial fishery [Doc 1]").
-3. Unsupported Queries: If the provided context contains NO relevant information, state verbatim: "I do not have enough information in my database to answer this."
-4. Framing & Depth: Provide a complete, clear, and informative response. When asked "what is" a major legislative or policy instrument, explain its purpose, key frameworks, and legal context as detailed in the documents rather than providing a single basic definition.
-5. Don't cite sources inline
+STRICT RULES:
+1. ONLY USE PROVIDED CONTEXT: Answer the user question using ONLY facts directly mentioned in the <context> tags below.
+2. ABSOLUTE ZERO OUTSIDE KNOWLEDGE: Do NOT use any prior training data, general world knowledge, or outside assumptions. If a fact is not explicitly stated in the context, treat it as entirely unknown.
+3. Grounding & Synthesis: Answer the user's question thoroughly by synthesizing all relevant facts, legal principles, and details found in the CONTEXT below. Do NOT introduce outside facts not supported by the context.
+4. FORMATTING & READABILITY (CRITICAL):
+   - Never output a single block of text.
+   - Separate distinct ideas into short paragraphs (2–4 sentences).
+   - Use bolding (`**term**`) for headers.
+   - INLINE LIST FORMATTING: When defining terms or listing items with descriptions, keep the term, colon, and description on the EXACT SAME LINE using standard bullet points (e.g., "* **Resource Management Plans (RMPs):** Developed by local authorities..."). NEVER place colons or descriptions on a new line beneath a title.
+   - Use Markdown bullet points (`*` or `-`) when listing items, ecological features, or legal mechanisms.
+5. Unsupported Queries: If the provided context contains NO relevant information to answer the question, state verbatim: "I do not have enough information in my database to answer this."
+6. Framing & Depth: Provide a complete, clear, and informative response. When asked "what is" a major legislative or policy instrument, explain its purpose, key frameworks, and legal context as detailed in the documents rather than providing a single basic definition.
+7. Don't cite sources inline.
+8. Small Talk & Greetings: Keep responses brief (1–2 sentences). Do not explain what you can or cannot do at length unless specifically requested.
 
 CONTEXT:
 {context}
 
 USER QUESTION:
-{user_query}
-"""
+{user_query}"""
 
     # --- Step 4: AI Model Inference ---
     try:
@@ -235,32 +247,47 @@ USER QUESTION:
             messages=[{"role": "user", "content": system_prompt}],
             options={"temperature": 0.0},
         )
-        answer = response["message"]["content"]
+        answer = response["message"]["content"].strip()
     except Exception as model_err:
-        # CONSOLE: Detailed technical error & stack trace printed in server terminal
         logger.error(f"[AI MODEL INFERENCE FAILURE] Model execution error for query '{user_query}': {str(model_err)}", exc_info=True)
-
-        # WEBSITE: Non-technical message returned to the user in the chatbot UI
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="We ran into an issue generating your response. Please try asking your question again.",
         )
 
-    insufficient_phrase = "i do not have enough information in my database to answer"
-    low_confidence = insufficient_phrase in answer.lower()
-    fully_unsupported = answer.strip().lower().startswith(insufficient_phrase)
+    # --- Step 5: Detect Unsupported / Low-Confidence Refusals ---
+    answer_clean = answer.lower()
 
-    # --- Step 5: Extract Unique Sources Preserving Exact Relevance Order & URL Fallbacks ---
+    unsupported_signals = [
+        "i do not have enough information in my database to answer",
+        "i do not have enough information",
+        "i don't have enough information",
+        "not enough information in my database",
+        "does not contain information",
+        "insufficient information",
+        "context provided does not contain",
+        "clarify what you would like to know",
+        "is there anything else i can help you with before you go",
+        "it seems you're saying goodbye",
+    ]
+
+    fully_unsupported = any(signal in answer_clean for signal in unsupported_signals)
+    low_confidence = fully_unsupported
+
+    # --- Step 6: Extract Unique Sources (With Distance Filter & Refusal Guard) ---
     sources = []
     seen_sources = set()
 
     if not fully_unsupported:
         for rank_idx, (meta, dist) in enumerate(zip(retrieved_metas, retrieved_distances), start=1):
+            # Skip chunks with high vector distance (i.e. low relevance)
+            if dist > MAX_SOURCE_DISTANCE:
+                continue
+
             document = meta.get("document", "Unknown Document")
             page = meta.get("page")
             url = meta.get("url")
 
-            # Fallback URL generator if empty/missing in vector metadata
             if not url and document != "Unknown Document":
                 clean_filename = document.replace(" ", "_")
                 url = f"https://www.eds.org.nz/publications/{clean_filename}"
@@ -296,5 +323,4 @@ USER QUESTION:
         "unanswered": fully_unsupported,
     }
 
-    # Clean and return safe payload
     return sanitize_response(response_payload)

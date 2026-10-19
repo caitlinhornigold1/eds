@@ -8,12 +8,12 @@ client = chromadb.PersistentClient(path=DB_PATH)
 # 1. Collection of test questions + expected source documents
 GOLDEN_DATASET = [
     {
-        "question": "What are the rules regarding marine protected areas?",
-        "expected_doc": "Foreshore and Seabed Act 2004",
+        "question": "What is the resource management act?",
+        "expected_doc": "Exploring the fundamental questions for resource management law reform in Aotearoa New Zealand",
     },
     {
         "question": "What is the sustainable catch limit for Tarakihi?",
-        "expected_doc": "Tarakihi",
+        "expected_doc": "Review of sustainability measures for Tarakihi",
     },
 ]
 

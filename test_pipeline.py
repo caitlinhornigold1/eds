@@ -4,10 +4,6 @@ import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
 
-# Import functions from your modules if structure permits, or test modular logic directly
-# from docCleaning.clean import process_single_pdf, batch_clean_folder
-
-
 # =====================================================================
 # 1. TESTS FOR CHUNKING & DEDUPLICATION LOGIC
 # =====================================================================

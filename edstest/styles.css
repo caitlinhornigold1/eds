@@ -1,0 +1,296 @@
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    font-family: Arial, sans-serif;
+}
+
+/* Floating chat launcher */
+#chatLauncher {
+    position: fixed;
+    right: 24px;
+    bottom: 24px;
+
+    width: 64px;
+    height: 64px;
+
+    border: none;
+    border-radius: 50%;
+
+    background-color: #2A4B3B;
+    color: white;
+
+    font-size: 28px;
+    cursor: pointer;
+
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+
+    z-index: 1001;
+}
+
+#chatLauncher:hover {
+    background-color: #00607c;
+}
+
+/* Chat panel */
+#chatPanel {
+    position: fixed;
+
+    right: 24px;
+    bottom: 100px;
+
+    width: 400px;
+    height: 600px;
+
+    max-height: calc(100vh - 130px);
+
+    background-color: white;
+
+    border-radius: 14px;
+
+    box-shadow:
+        0 8px 30px rgba(0, 0, 0, 0.25);
+
+    overflow: hidden;
+
+    display: flex;
+    flex-direction: column;
+
+    z-index: 1000;
+}
+
+.user-message {
+    text-align: right;
+    background-color: #2A4B3B;
+    color: white;
+    padding: 12px;
+    border-radius: 12px 12px 0px 12px;
+}
+.eds-message {
+    text-align: left;
+    background-color: #ECEBEF;
+    color: black;
+    padding: 12px;
+    border-radius: 12px 12px 12px 0px;
+}
+#chatPanel[hidden] {
+    display: none;
+}
+
+/* Header */
+#chatHeader {
+    background-color: #2A4B3B;
+    color: white;
+
+    padding: 14px 16px;
+
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+}
+
+#chatTitle h2,
+#chatTitle p {
+    margin: 0;
+}
+
+#chatTitle p {
+    margin-top: 4px;
+    font-size: 0.9rem;
+}
+#chatHeader h2 {
+    font-size: 1.2rem;
+}
+
+.ai-response {
+    line-height: 1.5;
+}
+br {
+    line-height: 0.1;
+}
+.response-heading {
+    display: inline;
+    margin-bottom: 8px;
+    margin-top: 8px;
+    font-size: 1rem;
+}
+
+.response-heading:first-child {
+    margin-top: 0;
+}
+
+.response-list {
+    margin-top: 6px;
+    padding-left: 20px;
+}
+
+.response-list li {
+    margin-bottom: 5px;
+}
+
+
+#closeChat {
+    border: none;
+    background: transparent;
+
+    color: white;
+
+    font-size: 28px;
+    line-height: 1;
+
+    cursor: pointer;
+}
+
+/* Conversation */
+#conversation {
+    flex: 1;
+
+    padding: 16px;
+
+    overflow-y: auto;
+    overflow-wrap: anywhere;
+
+    background-color: white;
+}
+
+#conversation p {
+    line-height: 1.4;
+}
+
+
+
+.sources strong {
+    display: block;
+    margin-bottom: 8px;
+}
+
+.sources ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.source-item {
+    margin-bottom: 8px;
+}
+
+.source-item:last-child {
+    margin-bottom: 0;
+}
+
+.source-item a {
+    display: block;
+    background-color: #ffffff;
+    border: 2px solid #2A4B3B;
+    border-radius: 25px;
+    padding: 10px;
+    color: #333;
+    text-decoration: none;
+}
+
+.source-item a:hover {
+    background-color: #e9f0e9;
+}
+
+.source-item a:focus {
+    outline: 2px solid #356b3d;
+    outline-offset: 2px;
+}
+
+/* Question form */
+#chatForm {
+    border-top: 1px solid #ddd;
+
+    padding: 12px;
+
+    display: flex;
+    gap: 8px;
+
+    background-color: #f7f7f7;
+}
+
+.visuallyHidden {
+    position: absolute;
+
+    width: 1px;
+    height: 1px;
+
+    padding: 0;
+    margin: -1px;
+
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+
+    white-space: nowrap;
+    border: 0;
+}
+
+#question {
+    flex: 1;
+    min-width: 0;
+
+    padding: 10px;
+
+    font-size: 16px;
+
+    border: 1px solid #aaa;
+    border-radius: 6px;
+}
+
+#sendButton {
+    padding: 10px 14px;
+
+    font-size: 15px;
+
+    cursor: pointer;
+
+    border: none;
+    border-radius: 6px;
+
+    background-color: #2A4B3B;
+    color: white;
+}
+
+#sendButton:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+input:focus-visible,
+button:focus-visible,
+a:focus-visible {
+    outline: 3px solid #2A4B3B;
+    outline-offset: 2px;
+}
+
+a {
+    overflow-wrap: anywhere;
+}
+
+@media (max-width: 600px) {
+    #chatLauncher {
+        right: 16px;
+        bottom: 16px;
+    }
+
+    #chatPanel {
+        right: 12px;
+        bottom: 92px;
+
+        width: calc(100vw - 24px);
+        height: 72vh;
+
+        max-height: none;
+    }
+
+    #chatForm {
+        flex-direction: column;
+    }
+
+    #question,
+    #sendButton {
+        width: 100%;
+    }
+}

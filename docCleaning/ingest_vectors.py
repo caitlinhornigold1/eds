@@ -27,7 +27,7 @@ collection = chroma_client.create_collection(name="eds_documents")
 # -------------------------
 
 text_splitter = RecursiveCharacterTextSplitter(
-    chunk_size=800,
+    chunk_size=600,
     chunk_overlap=150,
     separators=["\n\n", "\n", " ", ""],
 )
